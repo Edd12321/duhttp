@@ -1,7 +1,7 @@
 duhttp
 ======
 duhttp is a small, simple and hackable multithreaded HTTP server writen in one file of POSIX C99. (use at your own risk).
-It is currently far from complete (about 20%). It supports a very primitive form of "CGI", and still doesn't have directory listing (both features will be completed in the future).
+It is currently far from complete (about 20%). It supports a very primitive form of "CGI", and has directory listing (both features will be refined in the future).
 
 It will treat the current working dir as the server root on startup.
 

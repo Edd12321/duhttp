@@ -1,0 +1,1 @@
+This file will not be executed, because it does not have the execute permission (+x).

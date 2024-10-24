@@ -183,7 +183,7 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 	             "<body>\n"
 	             	"\t<h1>Index of %1$s</h1>\n"
 	             	"\t<table>\n"
-	              	"\t\t<tr>\n"
+	            		"\t\t<tr>\n"
 	             			"\t\t\t<th>Name</th>\n"
 	             			"\t\t\t<th>Last modified</th>\n"
 	             			"\t\t\t<th>Size</th>\n"
@@ -317,7 +317,7 @@ static inline void serve(int fd)
 				send_status(fd, 404);
 				goto _finish_get_req;
 			}
-			if (!cgi) {
+			if (!cgi || !(st.st_mode & S_IXUSR)) {
 				send_status(fd, 200);
 				send_file(fd, clean_uri);
 				goto _finish_get_req;
