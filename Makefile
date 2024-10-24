@@ -1,3 +1,3 @@
 all:
 	mkdir -p bin
-	c99 -Wall -pedantic src/main.c -o bin/duhttp
+	c99 -pedantic -Wall src/main.c -o bin/duhttp

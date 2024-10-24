@@ -1,0 +1,2 @@
+This is a plain text file.
+It is treated as such thanks to the MIME type detection built into the server.

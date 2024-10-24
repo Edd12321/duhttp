@@ -1,9 +1,11 @@
+#define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200809L
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <limits.h>
@@ -22,12 +24,12 @@
 #define LOG_FP          stderr       /* Where to print out log info? */
 #define HEADERS_MAX     8192         /* How much space can the request-line + headers occupy max? */
 #define QUERY_MAX       256          /* How much space can the query string occupy max? */
-#define CONTENT_MAX     8192
-#define WWW_DIR         "www"        /* Where are static things stored? */
+#define CONTENT_MAX     8192         /* Max allowed client content */
+#define WWW_DIR         "/www"       /* Where are static things stored? */
 #define CGI_DIR         "/cgi-bin"   /* Where are CGI scripts stored? */
 #define INDEX_FILE      "index.html" /* What file to serve by default? */
 #ifndef PATH_MAX
-#define PATH_MAX     4096   /* How big can a path be? */
+#define PATH_MAX        4096         /* How big can a path be? */
 #endif
 #define log_txt(ret, type, ...)                       \
     if (ret < 0 || !type) {                           \
@@ -140,6 +142,7 @@ char *sanitize_uri(char *uri)
 
 /* [...] sender help functions */
 #define send_str(x) send(fd, x, strlen(x), 0)
+#define max(x, y) ((x) > (y) ? (x) : (y))
 static inline void send_file(int fd, char *filename)
 {
 	int file = open(filename, O_RDONLY);
@@ -170,6 +173,58 @@ _skip_default_mimetype:
 	close(file);
 }
 
+static inline void send_dir_listing(int fd, char *uri_display, char *path)
+{
+	char str[max(HEADERS_MAX, PATH_MAX)];
+	sprintf(str, "Content-Type: text/html\r\n\r\n"
+	             "<!DOCTYPE HTML>\n"
+	             "<html>\n"
+	             "<head><title>Index of %1$s</title></head>\n"
+	             "<body>\n"
+	             	"\t<h1>Index of %1$s</h1>\n"
+	             	"\t<table>\n"
+	              	"\t\t<tr>\n"
+	             			"\t\t\t<th>Name</th>\n"
+	             			"\t\t\t<th>Last modified</th>\n"
+	             			"\t\t\t<th>Size</th>\n"
+	             		"\t\t</tr>\n"
+	             		"\t\t<tr>\n"
+	             			"\t\t\t<td colspan=\"3\"><hr /></td>\n"
+	             		"\t\t</tr>\n"
+		,uri_display);
+	send_str(str);
+	
+	DIR *d;
+	struct dirent *dir;
+	if ((d = opendir(path))) {
+		while ((dir = readdir(d)) != NULL) {
+			struct stat st;
+			stat(dir->d_name, &st);
+			
+			/* Last modified */
+			char date[64];
+			strftime(date, sizeof date, "%Y-%m-%d %H:%M", localtime(&st.st_mtime));
+			/* Real path*/
+			char path[PATH_MAX];
+			realpath(dir->d_name, path);
+			const char *dp_path = strstr(path, WWW_DIR);
+			dp_path = dp_path ? dp_path + strlen(WWW_DIR) : dir->d_name;
+			if (!*dp_path)
+				dp_path = "/";
+
+			sprintf(str, "\t\t<tr>\n"
+			             	"\t\t\t<td><a href=\"%s\">%s</a></td>\n"
+			             	"\t\t\t<td>%s</td>\n"
+			             	"\t\t\t<td>%ldB</td>\n"
+			             "\t\t</tr>\n"
+				, dp_path, dir->d_name, date, st.st_size);
+			send_str(str);
+		}
+		closedir(d);
+	}
+	send_str("</table></body></html>");
+}
+
 static inline void serve(int fd)
 {
 	char buf[HEADERS_MAX + 1];
@@ -179,13 +234,18 @@ static inline void serve(int fd)
 	char *track;
 	/* Request line */
 	char *method = strtok_r(buf, " ", &track);
-	char *uri = strtok_r(NULL, " ", &track);
-	char *query = strchr(uri, '?');
+	char *uri = !method ? NULL : strtok_r(NULL, " ", &track);
+	char *query = !uri ? NULL : strchr(uri, '?');
+	char *http_ver = strtok_r(NULL, "\r\n", &track);
 	if (query != NULL)
 		*query++ = '\0';
-	char *http_ver = strtok_r(NULL, "\r\n", &track);
+
+	if (!method || !uri || !http_ver) {
+		send_status(fd, 400);
+		return;
+	}
 	log_txt(NO_COND, INFO, "Connection accepted!\n"
-                           "Method:                 '%s'\n"
+	                       "Method:                 '%s'\n"
 	                       "URI:                    '%s'\n"
 	                       "Query string:           '%s'\n"
 	                       "HTTP version:           '%s'",
@@ -240,50 +300,54 @@ static inline void serve(int fd)
 		char *clean_uri = sanitize_uri(uri);
 		struct stat st;
 		stat(clean_uri, &st);
+		/* Directory listing/index file */
 		if (S_ISDIR(st.st_mode)) {
 			chdir(clean_uri);
-			if (access(INDEX_FILE, F_OK) != 0)
-				send_status(fd, 404);
-			else {
+			if (access(INDEX_FILE, F_OK) != 0) {
+				send_status(fd, 200);
+				send_dir_listing(fd, uri, clean_uri);
+			} else {
 				send_status(fd, 200);
 				send_file(fd, INDEX_FILE);
 			}
 			chdir(cwd);
+		/* Explicit file */
 		} else {
+			if (access(clean_uri, F_OK) != 0) {
+				send_status(fd, 404);
+				goto _finish_get_req;
+			}
 			if (!cgi) {
-				if (access(clean_uri, F_OK) != 0)
-					send_status(fd, 404);
-				else {
-					send_status(fd, 200);
-					send_file(fd, clean_uri);
-				}
+				send_status(fd, 200);
+				send_file(fd, clean_uri);
+				goto _finish_get_req;
+			}
+			/**
+			 * TODO: Set envvars
+			*/
+			pid_t pid;
+			int pd[2];
+
+			pipe(pd);
+			if ((pid = fork()) == 0) {
+				dup2(pd[1], STDOUT_FILENO);
+				close(pd[0]);
+				close(pd[1]);
+				execl(clean_uri, clean_uri, NULL);
+				_exit(0);
 			} else {
 				send_status(fd, 200);
-				/**
-				 * TODO: Set envvars
-				 */
-				pid_t pid;
-				int pd[2];
+				close(pd[1]);
+				char c;
+				while (read(pd[0], &c, 1) >= 1)
+					send(fd, &c, 1, 0);
+				close(pd[0]);
 
-				pipe(pd);
-				if ((pid = fork()) == 0) {
-					dup2(pd[1], STDOUT_FILENO);
-					close(pd[0]);
-					close(pd[1]);
-					execl(clean_uri, clean_uri, NULL);
-					_exit(0);
-				} else {
-					close(pd[1]);
-					char c;
-					while (read(pd[0], &c, 1) >= 1)
-						send(fd, &c, 1, 0);
-					close(pd[0]);
-
-					int status;
-					waitpid(pid, &status, 0);
-				}
+				int status;
+				waitpid(pid, &status, 0);
 			}
 		}
+_finish_get_req:
 		free(clean_uri);
 		free(content);
 		return;
