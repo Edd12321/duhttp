@@ -19,7 +19,6 @@
 #define PORT_NUM        8080         /* What port to bind to? */
 #define BACKLOG         10           /* How many clients can wait? */
 #define POOL_SIZE       256          /* How big should the thread pool be? */
-#define REQ_LIMIT       20           /* How big can a request be? */
 #define NO_COND         0            /* Should we check anything when logging? */
 #define LOG_FP          stderr       /* Where to print out log info? */
 #define HEADERS_MAX     8192         /* How much space can the request-line + headers occupy max? */
@@ -487,6 +486,7 @@ int main(int argc, char *argv[])
 					"\t[-p <port>]\n"
 					"\t[-b <backlog>]\n"
 					"\t[-m <content-max>]\n"
+					"\t[-h <headers-max>]\n"
 					"\t[-d <root-dir>]\n"
 					"\t[-c <cgi-dir>]\n",
 					argv[0]);
