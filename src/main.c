@@ -1,6 +1,7 @@
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200809L
 #include <sys/mman.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -162,27 +163,25 @@ static inline void send_file(int fd, char *filename)
 
 	struct stat st;
 	fstat(file, &st);
-	char *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, file, 0);
-	{
-		char str[256];
-		sprintf(str, "Content-Length: %ld\r\n", st.st_size);
-		send_str(str);
+	
+	char str[256];
+	sprintf(str, "Content-Length: %ld\r\n", st.st_size);
+	send_str(str);
 		
-		char *ext = strchr(basename(filename), '.');
-		if (ext && *++ext) {
-			foreach (k of struct mime_type in mime_types) {
-				if (!strcmp(ext, k->ext)) {
-					sprintf(str, "Content-Type: %s\r\n", k->type);
-					send_str(str);
-					goto _skip_default_mimetype;
-				}
+	char *ext = strchr(basename(filename), '.');
+	if (ext && *++ext) {
+		foreach (k of struct mime_type in mime_types) {
+			if (!strcmp(ext, k->ext)) {
+				sprintf(str, "Content-Type: %s\r\n", k->type);
+				send_str(str);
+				goto _skip_default_mimetype;
 			}
 		}
-		send_str("Content-Type: application/octet-stream\r\n");
 	}
+	send_str("Content-Type: application/octet-stream\r\n");
 _skip_default_mimetype:
 	send_str("\r\n");
-	send(fd, buf, st.st_size, 0);
+	sendfile(fd, file, 0, st.st_size);
 	close(file);
 }
 
