@@ -251,7 +251,7 @@ static inline void serve(int fd)
 	char *method = strtok_r(buf, " ", &track);
 	char *uri = !method ? NULL : strtok_r(NULL, " ", &track);
 	char *query = !uri ? NULL : strchr(uri, '?');
-	char *http_ver = strtok_r(NULL, "\r\n", &track);
+	char *http_ver = !uri ? NULL : strtok_r(NULL, "\r\n", &track);
 	if (query != NULL)
 		*query++ = '\0';
 
@@ -299,6 +299,7 @@ static inline void serve(int fd)
 			headers.Authorization = value;
 	}
 
+	/* Content and URI processing */
 	char *content = NULL;
 	if (headers.Content_Length) {
 		if (headers.Content_Length > settings.content_max) {
@@ -314,13 +315,20 @@ static inline void serve(int fd)
 		if (remaining_len > 0)
 			recv(fd, content + len1, remaining_len, 0);
 	}
+	
+	/* Do we execute a script or return a file? */
+	bool cgi = strstr(uri, settings.cgi_dir) == uri;
+	/* Do we have to send content back to the client? */
+	bool get = true;
+	
+	char *clean_uri = sanitize_uri(uri);
+	if (clean_uri == NULL) {
+		send_status(fd, 400);
+		goto _clean_up;
+	}
+
 	if (!strcmp(method, "GET")) {
-		bool cgi = strstr(uri, settings.cgi_dir) == uri;
-		char *clean_uri = sanitize_uri(uri);
-		if (clean_uri == NULL) {
-			send_status(fd, 400);
-			return;
-		}
+_get_req:;
 		struct stat st;
 		stat(clean_uri, &st);
 		/* Directory listing/index file */
@@ -328,22 +336,22 @@ static inline void serve(int fd)
 			chdir(clean_uri);
 			if (access(INDEX_FILE, F_OK) != 0) {
 				send_status(fd, 200);
-				send_dir_listing(fd, uri, clean_uri);
+				if (get) send_dir_listing(fd, uri, clean_uri);
 			} else {
 				send_status(fd, 200);
-				send_file(fd, INDEX_FILE);
+				if (get) send_file(fd, INDEX_FILE);
 			}
 			chdir(cwd);
 		/* Explicit file */
 		} else {
 			if (access(clean_uri, F_OK) != 0) {
 				send_status(fd, 404);
-				goto _finish_get_req;
+				goto _clean_up;
 			}
 			if (!cgi || !(st.st_mode & S_IXUSR)) {
 				send_status(fd, 200);
-				send_file(fd, clean_uri);
-				goto _finish_get_req;
+				if (get) send_file(fd, clean_uri);
+				goto _clean_up;
 			}
 			pid_t pid;
 			int out_pipe[2], content_pipe[2];
@@ -385,31 +393,27 @@ static inline void serve(int fd)
 				close(content_pipe[1]);
 				close(out_pipe[1]);
 				char c;
-				while (read(out_pipe[0], &c, 1) >= 1)
-					send(fd, &c, 1, 0);
+				if (get)
+					while (read(out_pipe[0], &c, 1) >= 1)
+						send(fd, &c, 1, 0);
 				close(out_pipe[0]);
 
 				int status;
 				waitpid(pid, &status, 0);
 			}
 		}
-_finish_get_req:
-		free(clean_uri);
-		free(content);
-		return;
-	}
-	if (!strcmp(method, "HEAD")) {
-		free(content);
+	} else if (!strcmp(method, "HEAD")) {
+		get = false;
+		goto _get_req;
 		send_status(fd, 200);
-		return;
-	}
-	if (!strcmp(method, "POST")) {
-		free(content);
+	} else if (!strcmp(method, "POST")) {
 		send_status(fd, 200);
-		return;
+	} else {
+		send_status(fd, 400);
 	}
+_clean_up:
+	free(clean_uri);
 	free(content);
-	send_status(fd, 400);
 }
 
 void enqueue(int info)

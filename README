@@ -13,7 +13,7 @@ Supported HTTP requests
 ------------------------
 duhttp supports the following requests:
 	- GET
-	- HEAD (WIP)
+	- HEAD
 	- POST (WIP)
 
 Bug reports
