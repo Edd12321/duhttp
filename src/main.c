@@ -11,6 +11,7 @@
 #include <libgen.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -316,6 +317,10 @@ static inline void serve(int fd)
 	if (!strcmp(method, "GET")) {
 		bool cgi = strstr(uri, settings.cgi_dir) == uri;
 		char *clean_uri = sanitize_uri(uri);
+		if (clean_uri == NULL) {
+			send_status(fd, 400);
+			return;
+		}
 		struct stat st;
 		stat(clean_uri, &st);
 		/* Directory listing/index file */
@@ -346,6 +351,7 @@ static inline void serve(int fd)
 			pipe(out_pipe);
 			pipe(content_pipe);
 			if ((pid = fork()) == 0) {
+				signal(SIGPIPE, SIG_DFL);
 				dup2(out_pipe[1], STDOUT_FILENO);
 				dup2(content_pipe[0], STDIN_FILENO);
 				close(out_pipe[1]);
@@ -446,15 +452,16 @@ void *conn_handler()
 			pthread_cond_wait(&cond, &mutex);
 			ret = dequeue();
 		}
+		pthread_mutex_unlock(&mutex);
 		serve(ret);
 		close(ret);
-		pthread_mutex_unlock(&mutex);
 	}
 	return NULL;
 }
 
 int main(int argc, char *argv[])
 {
+	signal(SIGPIPE, SIG_IGN);
 	getcwd(cwd, sizeof cwd);
 	/* Default values */
 	settings = (struct setting) {
