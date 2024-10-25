@@ -34,7 +34,8 @@
 #define log_txt(ret, type, ...)                       \
     if (ret < 0 || !type) {                           \
         time_t now = time(NULL);                      \
-        char *s = ctime(&now); s[strlen(s)-1] = '\0'; \
+        char *s = ctime_r(&now, (char[26]){0});       \
+        s[strlen(s)-1] = '\0';                        \
         fprintf(LOG_FP, "[%s] ", s);                  \
         fprintf(LOG_FP, "[" #type "] " __VA_ARGS__);  \
         fputc('\n', LOG_FP);                          \
@@ -240,7 +241,8 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 static inline void serve(int fd)
 {
 	char buf[settings.headers_max + 1];
-	size_t len = recv(fd, buf, sizeof buf - 1, 0);
+	ssize_t len = recv(fd, buf, sizeof buf - 1, 0);
+	len = len < 0 ? 0 : len;
 	buf[len] = '\0';
 
 	char *track;
@@ -282,6 +284,10 @@ static inline void serve(int fd)
 			return;
 		}
 		value = strstr(key, ": ");
+		if (!value) {
+			send_status(fd, 400);
+			return;
+		}
 		*value = '\0', value += 2;
 		log_txt(NO_COND, INFO, "Header: '%s'='%s'", key, value);
 		if (!strcmp(key, "Content-Length"))
@@ -347,7 +353,7 @@ static inline void serve(int fd)
 				close(content_pipe[0]);
 				close(content_pipe[1]);
 				/*
-				 * TODO: Set more envvars, send 
+				 * TODO: Set more envvars
 				 */
 #define set_var(x, y) \
     if (y != NULL) setenv(#x, y, 1);
@@ -436,7 +442,7 @@ void *conn_handler()
 	for (;;) {
 		pthread_mutex_lock(&mutex);
 		int ret = dequeue();
-		if (!ret) {
+		while (!ret) {
 			pthread_cond_wait(&cond, &mutex);
 			ret = dequeue();
 		}
