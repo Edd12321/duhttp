@@ -1,0 +1,6 @@
+#!/usr/lib/zrc/bin/zrc
+cd `{dirname `{realpath ${argv 1}}}
+./bin/duhttp \
+	-p 8080 \
+	-b 100 \
+	-d www

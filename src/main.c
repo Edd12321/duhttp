@@ -25,7 +25,6 @@
 #define HEADERS_MAX     8192         /* How much space can the request-line + headers occupy max? */
 #define QUERY_MAX       256          /* How much space can the query string occupy max? */
 #define CONTENT_MAX     8192         /* Max allowed client content */
-#define WWW_DIR         "/www"       /* Where are static things stored? */
 #define CGI_DIR         "/cgi-bin"   /* Where are CGI scripts stored? */
 #define INDEX_FILE      "index.html" /* What file to serve by default? */
 #define PROTOCOL        "HTTP/1.0"   /* HTTP Protocol version */
@@ -62,6 +61,15 @@ enum log_type {
 	ERROR,
 	WARN
 };
+
+struct setting {
+	int port_num;
+	int backlog;
+	size_t content_max;
+
+	char *root_dir;
+	char *cgi_dir;
+} settings;
 
 struct node {
 	int info;
@@ -124,9 +132,7 @@ char *sanitize_uri(char *uri)
 	if (*uri != '/')
 		return NULL;
 	char *new_buf = malloc(PATH_MAX);
-	strcpy(new_buf, cwd);
-	strcat(new_buf, "/");
-	strcat(new_buf, WWW_DIR);
+	strcpy(new_buf, settings.root_dir);
 	char *p = uri, *q = new_buf + strlen(new_buf);
 	for (; *p; ++p) {
 		if ((*p == '/')
@@ -208,8 +214,8 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			/* Real path*/
 			char path[PATH_MAX];
 			realpath(dir->d_name, path);
-			const char *dp_path = strstr(path, WWW_DIR);
-			dp_path = dp_path ? dp_path + strlen(WWW_DIR) : dir->d_name;
+			const char *dp_path = strstr(path, settings.root_dir);
+			dp_path = dp_path ? dp_path + strlen(settings.root_dir) : dir->d_name;
 			if (!*dp_path)
 				dp_path = "/";
 
@@ -283,7 +289,7 @@ static inline void serve(int fd)
 
 	char *content = NULL;
 	if (headers.Content_Length) {
-		if (headers.Content_Length > CONTENT_MAX) {
+		if (headers.Content_Length > settings.content_max) {
 			send_status(fd, 501);
 			return;
 		}
@@ -297,7 +303,7 @@ static inline void serve(int fd)
 			recv(fd, content + len1, remaining_len, 0);
 	}
 	if (!strcmp(method, "GET")) {
-		bool cgi = strstr(uri, CGI_DIR) == uri;
+		bool cgi = strstr(uri, settings.cgi_dir) == uri;
 		char *clean_uri = sanitize_uri(uri);
 		struct stat st;
 		stat(clean_uri, &st);
@@ -436,9 +442,50 @@ void *conn_handler()
 	return NULL;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	getcwd(cwd, sizeof cwd);
+	/* Default values */
+	settings = (struct setting) {
+		.port_num    = PORT_NUM,
+		.backlog     = BACKLOG,
+		.content_max = CONTENT_MAX,
+		.root_dir    = cwd,
+		.cgi_dir     = CGI_DIR
+	};
+	int opt;
+	while ((opt = getopt(argc, argv, "p:d:b:c:m:")) != -1) {
+		switch (opt) {
+			case 'p':
+				settings.port_num = atoi(optarg);
+				break;
+			case 'b':
+				settings.backlog = atoi(optarg);
+				break;
+			case 'm':
+				settings.content_max = atoll(optarg);
+				break;
+			case 'd':
+				settings.root_dir = optarg;
+				break;
+			case 'c':
+				settings.cgi_dir = optarg;
+				break;
+			case '?':
+				fprintf(stderr, "usage: %s\n"
+					"\t[-p <port>]\n"
+					"\t[-b <backlog>]\n"
+					"\t[-m <content-max>]\n"
+					"\t[-d <root-dir>]\n"
+					"\t[-c <cgi-dir>]\n",
+					argv[0]);
+				exit(EXIT_FAILURE);
+		}
+	}
+
+	char actual_root[PATH_MAX];
+	realpath(settings.root_dir, actual_root);
+	settings.root_dir = actual_root;
 
 	int sv_sock = socket(AF_INET, SOCK_STREAM, 0);
 	int cl_sock;
@@ -446,16 +493,16 @@ int main()
 
 	struct sockaddr_in sv_addr = {
 		.sin_family = AF_INET,
-		.sin_port = htons(PORT_NUM),
+		.sin_port = htons(settings.port_num),
 		.sin_addr = {.s_addr = htonl(INADDR_ANY)},
 		.sin_zero = {0}
 	};
 
 	log_txt(NO_COND,
-		INFO, "Started server on port %d", PORT_NUM);
+		INFO, "Started server on port %d", settings.port_num);
 	log_txt(bind(sv_sock, (struct sockaddr*) &sv_addr, sizeof sv_addr),
 		ERROR, "Could not bind socket to address");
-	log_txt(listen(sv_sock, BACKLOG),
+	log_txt(listen(sv_sock, settings.backlog),
 		ERROR, "Could not listen");
 	
 	foreach (i of pthread_t in pool)
