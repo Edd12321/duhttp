@@ -65,6 +65,7 @@ enum log_type {
 struct setting {
 	int port_num;
 	int backlog;
+	size_t headers_max;
 	size_t content_max;
 
 	char *root_dir;
@@ -86,8 +87,14 @@ struct mime_type {
 	{ "json", "application/json" },
 	{ "pdf",  "application/pdf" },
 	{ "zip",  "application/zip" },
+	{ "jar",  "application/java-archive" },
+	{ "wad",  "application/x-doom" },
 	{ "mp4",  "video/mp4" },
 	{ "webm", "video/webm" },
+	{ "png",  "image/png" },
+	{ "gif",  "image/gif" },
+	{ "ico",  "image/vnc.microsoft.icon" },
+	{ "jpg",  "image/jpeg" },
 };
 
 static void send_status(int fd, int status)
@@ -182,7 +189,7 @@ _skip_default_mimetype:
 
 static inline void send_dir_listing(int fd, char *uri_display, char *path)
 {
-	char str[max(HEADERS_MAX, PATH_MAX)];
+	char str[max(settings.headers_max, PATH_MAX)];
 	sprintf(str, "Content-Type: text/html\r\n\r\n"
 	             "<!DOCTYPE HTML>\n"
 	             "<html>\n"
@@ -234,7 +241,7 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 
 static inline void serve(int fd)
 {
-	char buf[HEADERS_MAX + 1];
+	char buf[settings.headers_max + 1];
 	size_t len = recv(fd, buf, sizeof buf - 1, 0);
 	buf[len] = '\0';
 
@@ -449,12 +456,13 @@ int main(int argc, char *argv[])
 	settings = (struct setting) {
 		.port_num    = PORT_NUM,
 		.backlog     = BACKLOG,
+		.headers_max = HEADERS_MAX,
 		.content_max = CONTENT_MAX,
 		.root_dir    = cwd,
 		.cgi_dir     = CGI_DIR
 	};
 	int opt;
-	while ((opt = getopt(argc, argv, "p:d:b:c:m:")) != -1) {
+	while ((opt = getopt(argc, argv, "p:d:b:c:m:h:")) != -1) {
 		switch (opt) {
 			case 'p':
 				settings.port_num = atoi(optarg);
@@ -464,6 +472,9 @@ int main(int argc, char *argv[])
 				break;
 			case 'm':
 				settings.content_max = atoll(optarg);
+				break;
+			case 'h':
+				settings.headers_max = atoll(optarg);
 				break;
 			case 'd':
 				settings.root_dir = optarg;
