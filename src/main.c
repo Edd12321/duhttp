@@ -28,6 +28,7 @@
 #define WWW_DIR         "/www"       /* Where are static things stored? */
 #define CGI_DIR         "/cgi-bin"   /* Where are CGI scripts stored? */
 #define INDEX_FILE      "index.html" /* What file to serve by default? */
+#define PROTOCOL        "HTTP/1.0"   /* HTTP Protocol version */
 #ifndef PATH_MAX
 #define PATH_MAX        4096         /* How big can a path be? */
 #endif
@@ -114,7 +115,7 @@ static void send_status(int fd, int status)
 	}
 	char buf[128];
 	log_txt(NO_COND, INFO, "Client received status: '%d %s'", status, str);
-	sprintf(buf, "HTTP/1.0 %d %s\r\n", status, str);
+	sprintf(buf, PROTOCOL " %d %s\r\n", status, str);
 	send(fd, buf, strlen(buf), 0);
 }
 
@@ -273,7 +274,7 @@ static inline void serve(int fd)
 		*value = '\0', value += 2;
 		log_txt(NO_COND, INFO, "Header: '%s'='%s'", key, value);
 		if (!strcmp(key, "Content-Length"))
-			headers.Content_Length = atoi(value);
+			headers.Content_Length = atoll(value);
 		if (!strcmp(key, "Content-Type"))
 			headers.Content_Type = value;
 		if (!strcmp(key, "Authorization"))
@@ -322,26 +323,48 @@ static inline void serve(int fd)
 				send_file(fd, clean_uri);
 				goto _finish_get_req;
 			}
-			/**
-			 * TODO: Set envvars
-			*/
 			pid_t pid;
-			int pd[2];
+			int out_pipe[2], content_pipe[2];
 
-			pipe(pd);
+			pipe(out_pipe);
+			pipe(content_pipe);
 			if ((pid = fork()) == 0) {
-				dup2(pd[1], STDOUT_FILENO);
-				close(pd[0]);
-				close(pd[1]);
+				dup2(out_pipe[1], STDOUT_FILENO);
+				dup2(content_pipe[0], STDIN_FILENO);
+				close(out_pipe[1]);
+				close(out_pipe[0]);
+				close(content_pipe[0]);
+				close(content_pipe[1]);
+				/*
+				 * TODO: Set more envvars, send 
+				 */
+#define set_var(x, y) \
+    if (y != NULL) setenv(#x, y, 1);
+#define set_int(x, y) {           \
+    char buf[32];                 \
+    sprintf(buf, "%ld", (long)y); \
+    setenv(#x, buf, 1);           \
+}
+				set_int(CONTENT_LENGTH,  headers.Content_Length);
+				set_var(CONTENT_TYPE,    headers.Content_Type);
+				set_var(QUERY_STRING,    query);
+				set_var(REQUEST_METHOD,  method);
+				set_var(SCRIPT_NAME,     uri);
+				set_var(SERVER_PROTOCOL, PROTOCOL);
+				set_int(SERVER_PORT,     PORT_NUM);
 				execl(clean_uri, clean_uri, NULL);
 				_exit(0);
 			} else {
 				send_status(fd, 200);
-				close(pd[1]);
+				close(content_pipe[0]);
+				if (content)
+					write(content_pipe[1], content, strlen(content));
+				close(content_pipe[1]);
+				close(out_pipe[1]);
 				char c;
-				while (read(pd[0], &c, 1) >= 1)
+				while (read(out_pipe[0], &c, 1) >= 1)
 					send(fd, &c, 1, 0);
-				close(pd[0]);
+				close(out_pipe[0]);
 
 				int status;
 				waitpid(pid, &status, 0);

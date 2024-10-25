@@ -1,0 +1,32 @@
+#!/usr/lib/zrc/bin/zrc
+
+fn var {
+	return ${argv 1}=${${argv 1}}
+}
+
+echo -n "Content-Type: text/html\r\n\r\n
+<!DOCTYPE HTML>
+<html>
+<head></head>
+<body>
+The CGI variables passed to this script are:
+<pre>
+[var CONTENT_LENGTH]
+[var CONTENT_TYPE]
+[var QUERY_STRING]
+[var REQUEST_METHOD]
+[var SCRIPT_NAME]
+[var SERVER_PROTOCOL]
+[var SERVER_PORT]
+</pre>"
+if {[str $QUERY_STRING len]} {
+	echo The query string split by \'&\' is:<br />
+	echo -n $QUERY_STRING | until {[read -d '&' str]} {
+		echo <code>$str</code>, 
+	}
+}
+echo "Content is: <pre>"
+until {[read str]} {
+	echo $str
+}
+echo "</pre></body></html>"
