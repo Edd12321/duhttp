@@ -1,0 +1,19 @@
+#!/usr/lib/zrc/bin/zrc
+fn command {
+	if {[ord [str ${argv 1} 0]] == [ord '-']} {
+		set flag = [str ${argv 1} + 1]
+		return "<pre>\$ ${argv 2}\n<$flag>`{eval ${argv 2}}</$flag></pre>"
+	} else {
+		return "<pre>\$ ${argv 1}\n`{eval ${argv 1}}</pre>"
+	}
+}
+
+echo -n "Content-Type: text/html\r\n
+<!DOCTYPE HTML>
+<html>
+<head></head>
+<body>
+[command -i 'fortune']
+[command    'ls -la /usr/share/fortune']
+</body>
+</html>"

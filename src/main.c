@@ -405,7 +405,6 @@ _get_req:;
 	} else if (!strcmp(method, "HEAD")) {
 		get = false;
 		goto _get_req;
-		send_status(fd, 200);
 	} else if (!strcmp(method, "POST")) {
 		send_status(fd, 200);
 	} else {
