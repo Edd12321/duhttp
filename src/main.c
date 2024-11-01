@@ -81,22 +81,30 @@ struct node {
 
 struct mime_type {
 	char *ext, *type;
-} mime_types[] = {
-	{ "txt",  "text/plain" },
-	{ "html", "text/html" },
-	{ "css",  "text/css" },
-	{ "js",   "text/javascript" },
-	{ "json", "application/json" },
-	{ "pdf",  "application/pdf" },
-	{ "zip",  "application/zip" },
-	{ "jar",  "application/java-archive" },
-	{ "wad",  "application/x-doom" },
-	{ "mp4",  "video/mp4" },
-	{ "webm", "video/webm" },
-	{ "png",  "image/png" },
-	{ "gif",  "image/gif" },
-	{ "ico",  "image/vnc.microsoft.icon" },
-	{ "jpg",  "image/jpeg" },
+};
+
+struct mime_type mimetypes_ext[] = {
+	{ "txt zrc",                "text/plain" },
+	{ "html htm",               "text/html" },
+	{ "md",                     "text/markdown" },
+	{ "c h cpp hpp cc cxx c++", "text/x-c" },
+	{ "css",                    "text/css" },
+	{ "js",                     "text/javascript" },
+	{ "json",                   "application/json" },
+	{ "pdf",                    "application/pdf" },
+	{ "zip",                    "application/zip" },
+	{ "jar",                    "application/java-archive" },
+	{ "wad",                    "application/x-doom" },
+	{ "mp4",                    "video/mp4" },
+	{ "webm",                   "video/webm" },
+	{ "png",                    "image/png" },
+	{ "gif",                    "image/gif" },
+	{ "ico",                    "image/vnc.microsoft.icon" },
+	{ "jpg jpeg",               "image/jpeg" },
+	{ "svg",                    "image/svg+xml" },
+};
+struct mime_type mimetypes_name[] = {
+	{ "README LICENSE Makefile .gitignore", "text/plain" },
 };
 
 static void send_status(int fd, int status)
@@ -169,17 +177,27 @@ static inline void send_file(int fd, char *filename)
 	char str[256];
 	sprintf(str, "Content-Length: %ld\r\n", st.st_size);
 	send_str(str);
-		
+	
+#define send_mime(x, T) {                                      \
+    foreach (k of struct mime_type in T) {                     \
+        char *track;                                           \
+        char *cpy = strdup(k->ext);                            \
+        char *ptr = strtok_r(cpy, " ", &track);                \
+        do {                                                   \
+            if (!strcmp(x, ptr)) {                             \
+                free(cpy);                                     \
+                sprintf(str, "Content-Type: %s\r\n", k->type); \
+                send_str(str);                                 \
+                goto _skip_default_mimetype;                   \
+            }                                                  \
+        } while ((ptr = strtok_r(NULL, " ", &track)) != NULL); \
+        free(cpy);                                             \
+    }                                                          \
+}
 	char *ext = strchr(basename(filename), '.');
-	if (ext && *++ext) {
-		foreach (k of struct mime_type in mime_types) {
-			if (!strcmp(ext, k->ext)) {
-				sprintf(str, "Content-Type: %s\r\n", k->type);
-				send_str(str);
-				goto _skip_default_mimetype;
-			}
-		}
-	}
+	if (ext && *++ext)
+		send_mime(ext, mimetypes_ext);
+	send_mime(basename(filename), mimetypes_name);
 	send_str("Content-Type: application/octet-stream\r\n");
 _skip_default_mimetype:
 	send_str("\r\n");
