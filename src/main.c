@@ -21,6 +21,7 @@
 #define PORT_NUM        8080         /* What port to bind to? */
 #define BACKLOG         10           /* How many clients can wait? */
 #define POOL_SIZE       256          /* How big should the thread pool be? */
+#define DEFAULT_MIME    0            /* Send application/octet-stream, or let the browser figure it out */
 #define NO_COND         0            /* Should we check anything when logging? */
 #define LOG_FP          stderr       /* Where to print out log info? */
 #define HEADERS_MAX     8192         /* How much space can the request-line + headers occupy max? */
@@ -90,7 +91,6 @@ struct mime_type mimetypes_ext[] = {
 	{ "c h cpp hpp cc cxx c++", "text/x-c" },
 	{ "css",                    "text/css" },
 	{ "js",                     "text/javascript" },
-	{ "php",                    "application/x-httpd-php" },
 	{ "json",                   "application/json" },
 	{ "pdf",                    "application/pdf" },
 	{ "zip",                    "application/zip" },
@@ -199,7 +199,9 @@ static inline void send_file(int fd, char *filename)
 	if (ext && *++ext)
 		send_mime(ext, mimetypes_ext);
 	send_mime(basename(filename), mimetypes_name);
+#if DEFAULT_MIME 
 	send_str("Content-Type: application/octet-stream\r\n");
+#endif
 _skip_default_mimetype:
 	send_str("\r\n");
 	sendfile(fd, file, 0, st.st_size);
@@ -238,9 +240,12 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			char date[64];
 			strftime(date, sizeof date, "%Y-%m-%d %H:%M", localtime(&st.st_mtime));
 			/* Real path */
-			char path[PATH_MAX];
-			realpath(dir->d_name, path);
-			const char *dp_path = strstr(path, settings.root_dir);
+			char link[PATH_MAX];
+			strcpy(link, path);
+			if (link[strlen(link)-1] != '/')
+				strcat(link, "/");
+			strcat(link, dir->d_name);
+			const char *dp_path = strstr(link, settings.root_dir);
 			dp_path = dp_path ? dp_path + strlen(settings.root_dir) : dir->d_name;
 			if (!*dp_path)
 				dp_path = "/";
@@ -352,15 +357,19 @@ _get_req:;
 		stat(clean_uri, &st);
 		/* Directory listing/index file */
 		if (S_ISDIR(st.st_mode)) {
-			chdir(clean_uri);
-			if (access(INDEX_FILE, F_OK) != 0) {
-				send_status(fd, 200);
-				if (get) send_dir_listing(fd, uri, clean_uri);
-			} else {
-				send_status(fd, 200);
-				if (get) send_file(fd, INDEX_FILE);
+			pid_t pid = fork();
+			if (!pid) {
+				chdir(clean_uri);
+				if (access(INDEX_FILE, F_OK) != 0) {
+					send_status(fd, 200);
+					if (get) send_dir_listing(fd, uri, clean_uri);
+				} else {
+					send_status(fd, 200);
+					if (get) send_file(fd, INDEX_FILE);
+				}
+				chdir(cwd);
+				_exit(0);
 			}
-			chdir(cwd);
 		/* Explicit file */
 		} else {
 			if (access(clean_uri, F_OK) != 0) {
@@ -400,9 +409,13 @@ _get_req:;
 				set_var(QUERY_STRING,    query);
 				set_var(REQUEST_METHOD,  method);
 				set_var(SCRIPT_NAME,     uri);
+				set_var(DOCUMENT_ROOT,   settings.root_dir);
 				set_var(SERVER_PROTOCOL, PROTOCOL);
 				set_int(SERVER_PORT,     PORT_NUM);
-				execl(clean_uri, clean_uri, NULL);
+				char path[PATH_MAX];
+				realpath(clean_uri, path);
+				chdir(dirname(clean_uri));
+				execl(path, path, NULL);
 				_exit(0);
 			} else {
 				send_status(fd, 200);
@@ -425,7 +438,9 @@ _get_req:;
 		get = false;
 		goto _get_req;
 	} else if (!strcmp(method, "POST")) {
-		send_status(fd, 200);
+		/* It only recently dawned on me that my GET is actually a POST
+		 * But it works so who cares. Rookie mistake */
+		goto _get_req;
 	} else {
 		send_status(fd, 400);
 	}
