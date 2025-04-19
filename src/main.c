@@ -85,11 +85,12 @@ struct mime_type {
 
 struct mime_type mimetypes_ext[] = {
 	{ "txt zrc",                "text/plain" },
-	{ "html htm",               "text/html" },
+	{ "html htm xhtml",         "text/html" },
 	{ "md",                     "text/markdown" },
 	{ "c h cpp hpp cc cxx c++", "text/x-c" },
 	{ "css",                    "text/css" },
 	{ "js",                     "text/javascript" },
+	{ "php",                    "application/x-httpd-php" },
 	{ "json",                   "application/json" },
 	{ "pdf",                    "application/pdf" },
 	{ "zip",                    "application/zip" },
@@ -236,7 +237,7 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			/* Last modified */
 			char date[64];
 			strftime(date, sizeof date, "%Y-%m-%d %H:%M", localtime(&st.st_mtime));
-			/* Real path*/
+			/* Real path */
 			char path[PATH_MAX];
 			realpath(dir->d_name, path);
 			const char *dp_path = strstr(path, settings.root_dir);
