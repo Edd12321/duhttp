@@ -269,7 +269,6 @@ static inline void serve(int fd)
 	ssize_t len = recv(fd, buf, sizeof buf - 1, 0);
 	len = len < 0 ? 0 : len;
 	buf[len] = '\0';
-
 	char *track;
 	/* Request line */
 	char *method = strtok_r(buf, " ", &track);
@@ -303,7 +302,7 @@ static inline void serve(int fd)
 			key[len-1] = '\0';
 			if (!*key)
 				break;
-			headers_len += len + 2;
+			headers_len += len + 1;
 		} else {
 			send_status(fd, 400);
 			return;
@@ -322,6 +321,9 @@ static inline void serve(int fd)
 		if (!strcmp(key, "Authorization"))
 			headers.Authorization = value;
 	}
+	for (int i = headers_len; i < len; ++i)
+		if (!buf[i])
+			++headers_len;
 
 	/* Content and URI processing */
 	char *content = NULL;
@@ -330,7 +332,7 @@ static inline void serve(int fd)
 			send_status(fd, 501);
 			return;
 		}
-		char *part1 = buf + headers_len;
+		char *part1 = buf + headers_len + 1;
 		size_t len1 = strlen(part1);
 		ssize_t remaining_len = headers.Content_Length - len1;
 
@@ -404,6 +406,9 @@ _get_req:;
     sprintf(buf, "%ld", (long)y); \
     setenv(#x, buf, 1);           \
 }
+				set_var(SCRIPT_FILENAME, clean_uri);
+				set_var(REQUEST_URI,     uri);
+				set_var(REQUEST_METHOD,  method);
 				set_int(CONTENT_LENGTH,  headers.Content_Length);
 				set_var(CONTENT_TYPE,    headers.Content_Type);
 				set_var(QUERY_STRING,    query);
@@ -431,7 +436,7 @@ _get_req:;
 				close(out_pipe[0]);
 
 				int status;
-				waitpid(pid, &status, 0);
+				waitpid(pid, &status, WNOHANG);
 			}
 		}
 	} else if (!strcmp(method, "HEAD")) {
