@@ -293,6 +293,7 @@ static inline void serve(int fd)
 		size_t Content_Length;
 		char *Content_Type;
 		char *Authorization;
+		char *Cookie;
 	} headers = {0};
 	char *key, *value;
 	size_t headers_len = http_ver - buf + strlen(http_ver) - 1;
@@ -320,6 +321,8 @@ static inline void serve(int fd)
 			headers.Content_Type = value;
 		if (!strcmp(key, "Authorization"))
 			headers.Authorization = value;
+		if (!strcmp(key, "Cookie"))
+			headers.Cookie = value;
 	}
 	for (int i = headers_len; i < len; ++i)
 		if (!buf[i])
@@ -406,17 +409,19 @@ _get_req:;
     sprintf(buf, "%ld", (long)y); \
     setenv(#x, buf, 1);           \
 }
-				set_var(SCRIPT_FILENAME, clean_uri);
-				set_var(REQUEST_URI,     uri);
-				set_var(REQUEST_METHOD,  method);
-				set_int(CONTENT_LENGTH,  headers.Content_Length);
-				set_var(CONTENT_TYPE,    headers.Content_Type);
-				set_var(QUERY_STRING,    query);
-				set_var(REQUEST_METHOD,  method);
-				set_var(SCRIPT_NAME,     uri);
-				set_var(DOCUMENT_ROOT,   settings.root_dir);
-				set_var(SERVER_PROTOCOL, PROTOCOL);
-				set_int(SERVER_PORT,     PORT_NUM);
+				set_var(SCRIPT_FILENAME,    clean_uri);
+				set_var(REQUEST_URI,        uri);
+				set_var(REQUEST_METHOD,     method);
+				set_int(CONTENT_LENGTH,     headers.Content_Length);
+				set_var(CONTENT_TYPE,       headers.Content_Type);
+				set_var(QUERY_STRING,       query);
+				set_var(REQUEST_METHOD,     method);
+				set_var(SCRIPT_NAME,        uri);
+				set_var(DOCUMENT_ROOT,      settings.root_dir);
+				set_var(SERVER_PROTOCOL,    PROTOCOL);
+				set_var(HTTP_AUTHORIZATION, headers.Authorization);
+				set_var(HTTP_COOKIE,        headers.Cookie);
+				set_int(SERVER_PORT,        PORT_NUM);
 				char path[PATH_MAX];
 				realpath(clean_uri, path);
 				chdir(dirname(clean_uri));
