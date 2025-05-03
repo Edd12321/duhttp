@@ -166,13 +166,27 @@ char *sanitize_uri(char *uri)
 	return new_buf;
 }
 
+char *escape_html(const char *s)
+{
+	char *new_buf = malloc(strlen(s) * 6 + 1), *dst = new_buf;
+	for (const char *p = s; *p; ++p) {
+		switch (*p) {
+			case '<': strcpy(dst, "&lt;"); dst += 4; break;
+			case '>': strcpy(dst, "&gt;"); dst += 4; break;
+			case '&': strcpy(dst, "&amp;"); dst += 5; break;
+			case '"': strcpy(dst, "&quot;"); dst += 6; break;
+			default: *dst++ = *p; break;
+		}
+	}
+	*dst = '\0';
+	return new_buf;
+}
+
 /* [...] sender help functions */
 #define send_str(x) send(fd, x, strlen(x), 0)
 #define max(x, y) ((x) > (y) ? (x) : (y))
-static inline void send_file(int fd, char *filename)
+static inline void send_file(int fd, int file, char *filename) 
 {
-	int file = open(filename, O_RDONLY);
-
 	struct stat st;
 	fstat(file, &st);
 	
@@ -255,12 +269,17 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			if (!*dp_path)
 				dp_path = "/";
 
+			/* TODO: handle decoding HTTP percent strings */
+			char *dp_path_escaped = escape_html(dp_path);
+			char *d_name_escaped = escape_html(dir->d_name);
 			sprintf(str, "\t\t<tr>\n"
 			             	"\t\t\t<td><a href=\"%s\">%s</a></td>\n"
 			             	"\t\t\t<td>%s</td>\n"
 			             	"\t\t\t<td>%ldB</td>\n"
 			             "\t\t</tr>\n"
-				, dp_path, dir->d_name, date, st.st_size);
+				, dp_path_escaped, d_name_escaped, date, st.st_size);
+			free(dp_path_escaped);
+			free(d_name_escaped);
 			send_str(str);
 		}
 		closedir(d);
@@ -379,22 +398,24 @@ _get_req:;
 		if (S_ISDIR(st.st_mode)) {
 			char index_file[PATH_MAX];
 			snprintf(index_file, sizeof index_file, "%s/%s", clean_uri, INDEX_FILE);
-			if (access(index_file, F_OK) != 0) {
+			int idx_file = open(index_file, O_RDONLY);
+			if (idx_file < 0) {
 				send_status(fd, 200);
 				if (get) send_dir_listing(fd, uri, clean_uri);
 			} else {
 				send_status(fd, 200);
-				if (get) send_file(fd, INDEX_FILE);
+				if (get) send_file(fd, idx_file, index_file);
 			}
 		/* Explicit file */
 		} else {
-			if (access(clean_uri, F_OK) != 0) {
+			int uri_file = open(clean_uri, O_RDONLY);
+			if (uri_file < 0) {
 				send_status(fd, 404);
 				goto _clean_up;
 			}
 			if (!cgi || !(st.st_mode & S_IXUSR)) {
 				send_status(fd, 200);
-				if (get) send_file(fd, clean_uri);
+				if (get) send_file(fd, uri_file, clean_uri);
 				goto _clean_up;
 			}
 			pid_t pid;
@@ -415,10 +436,10 @@ _get_req:;
 				 */
 #define set_var(x, y) \
     if (y != NULL) setenv(#x, y, 1);
-#define set_int(x, y) {                 \
-    char buf[32];                       \
-    sprintf(buf, "%ld", (long)y);       \
-    if (buf != NULL) setenv(#x, buf, 1);\
+#define set_int(x, y) {                   \
+    char buf[32];                         \
+    sprintf(buf, "%ld", (long)y);         \
+    if (buf != NULL) setenv(#x, buf, 1);  \
 }
 				set_var(SCRIPT_FILENAME,    clean_uri);
 				set_var(REQUEST_URI,        uri);
@@ -435,10 +456,11 @@ _get_req:;
 				set_int(SERVER_PORT,        settings.port_num);
 				set_var(HTTP_HOST,          headers.Host);
 				set_var(REMOTE_ADDR,        ip);
-				
-				char *found_colon = strchr(headers.Host, ':');
-				if (found_colon)
-					*found_colon = '\0';
+				if (headers.Host) {
+					char *found_colon = strchr(headers.Host, ':');
+					if (found_colon)
+						*found_colon = '\0';
+				}
 				set_var(SERVER_NAME,        headers.Host);
 				set_var(REQUEST_SCHEME,     "http"); /* hardcoded for the time being */
 
