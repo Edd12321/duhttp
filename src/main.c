@@ -196,10 +196,12 @@ static inline void send_file(int fd, char *filename)
         free(cpy);                                             \
     }                                                          \
 }
-	char *ext = strchr(basename(filename), '.');
+	char *_filename = strdup(filename);
+	char *ext = strchr(basename(_filename), '.');
 	if (ext && *++ext)
 		send_mime(ext, mimetypes_ext);
-	send_mime(basename(filename), mimetypes_name);
+	send_mime(basename(_filename), mimetypes_name);
+	free(_filename);
 #if DEFAULT_MIME 
 	send_str("Content-Type: application/octet-stream\r\n");
 #endif
@@ -284,7 +286,8 @@ static inline void serve(int fd)
 	struct sockaddr_in cl_addr;
 	socklen_t cl_len = sizeof cl_addr;
 	getpeername(fd, (struct sockaddr*)&cl_addr, &cl_len);
-	char *ip = inet_ntoa(cl_addr.sin_addr);
+	char ip[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &cl_addr.sin_addr, ip, sizeof ip);
 	log_txt(NO_COND, INFO, "Trying to serve %s...\n", ip);
 	if (!method || !uri || !http_ver) {
 		send_status(fd, 400);
@@ -412,10 +415,10 @@ _get_req:;
 				 */
 #define set_var(x, y) \
     if (y != NULL) setenv(#x, y, 1);
-#define set_int(x, y) {           \
-    char buf[32];                 \
-    sprintf(buf, "%ld", (long)y); \
-    setenv(#x, buf, 1);           \
+#define set_int(x, y) {                 \
+    char buf[32];                       \
+    sprintf(buf, "%ld", (long)y);       \
+    if (buf != NULL) setenv(#x, buf, 1);\
 }
 				set_var(SCRIPT_FILENAME,    clean_uri);
 				set_var(REQUEST_URI,        uri);
@@ -601,6 +604,7 @@ int main(int argc, char *argv[])
 			WARN, "Could not accept connection (socket %d)", cl_sock);
 		log_txt(NO_COND,
 			INFO, "Accepting connection (socket %d)", cl_sock);
+		if (cl_sock < 0) continue;
 		pthread_mutex_lock(&mutex);
 		enqueue(cl_sock);
 		pthread_cond_signal(&cond);
