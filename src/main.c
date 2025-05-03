@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -233,8 +234,10 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 	struct dirent *dir;
 	if ((d = opendir(path))) {
 		while ((dir = readdir(d)) != NULL) {
+			char fullpath[PATH_MAX];
+			snprintf(fullpath, sizeof fullpath, "%s/%s", path, dir->d_name);
 			struct stat st;
-			stat(dir->d_name, &st);
+			stat(fullpath, &st);
 			
 			/* Last modified */
 			char date[64];
@@ -278,22 +281,29 @@ static inline void serve(int fd)
 	if (query != NULL)
 		*query++ = '\0';
 
+	struct sockaddr_in cl_addr;
+	socklen_t cl_len = sizeof cl_addr;
+	getpeername(fd, (struct sockaddr*)&cl_addr, &cl_len);
+	char *ip = inet_ntoa(cl_addr.sin_addr);
+	log_txt(NO_COND, INFO, "Trying to serve %s...\n", ip);
 	if (!method || !uri || !http_ver) {
 		send_status(fd, 400);
 		return;
 	}
 	log_txt(NO_COND, INFO, "Connection accepted!\n"
+	                       "IP Address:             '%s'\n"
 	                       "Method:                 '%s'\n"
 	                       "URI:                    '%s'\n"
 	                       "Query string:           '%s'\n"
 	                       "HTTP version:           '%s'",
-		method, uri, query, http_ver);
+		ip, method, uri, query, http_ver);
 	/* Handle client headers */
 	struct {
 		size_t Content_Length;
 		char *Content_Type;
 		char *Authorization;
 		char *Cookie;
+		char *Host;
 	} headers = {0};
 	char *key, *value;
 	size_t headers_len = http_ver - buf + strlen(http_ver) - 1;
@@ -323,6 +333,8 @@ static inline void serve(int fd)
 			headers.Authorization = value;
 		if (!strcmp(key, "Cookie"))
 			headers.Cookie = value;
+		if (!strcmp(key, "Host"))
+			headers.Host = value;
 	}
 	for (int i = headers_len; i < len; ++i)
 		if (!buf[i])
@@ -362,18 +374,14 @@ _get_req:;
 		stat(clean_uri, &st);
 		/* Directory listing/index file */
 		if (S_ISDIR(st.st_mode)) {
-			pid_t pid = fork();
-			if (!pid) {
-				chdir(clean_uri);
-				if (access(INDEX_FILE, F_OK) != 0) {
-					send_status(fd, 200);
-					if (get) send_dir_listing(fd, uri, clean_uri);
-				} else {
-					send_status(fd, 200);
-					if (get) send_file(fd, INDEX_FILE);
-				}
-				chdir(cwd);
-				_exit(0);
+			char index_file[PATH_MAX];
+			snprintf(index_file, sizeof index_file, "%s/%s", clean_uri, INDEX_FILE);
+			if (access(index_file, F_OK) != 0) {
+				send_status(fd, 200);
+				if (get) send_dir_listing(fd, uri, clean_uri);
+			} else {
+				send_status(fd, 200);
+				if (get) send_file(fd, INDEX_FILE);
 			}
 		/* Explicit file */
 		} else {
@@ -421,7 +429,16 @@ _get_req:;
 				set_var(SERVER_PROTOCOL,    PROTOCOL);
 				set_var(HTTP_AUTHORIZATION, headers.Authorization);
 				set_var(HTTP_COOKIE,        headers.Cookie);
-				set_int(SERVER_PORT,        PORT_NUM);
+				set_int(SERVER_PORT,        settings.port_num);
+				set_var(HTTP_HOST,          headers.Host);
+				set_var(REMOTE_ADDR,        ip);
+				
+				char *found_colon = strchr(headers.Host, ':');
+				if (found_colon)
+					*found_colon = '\0';
+				set_var(SERVER_NAME,        headers.Host);
+				set_var(REQUEST_SCHEME,     "http"); /* hardcoded for the time being */
+
 				char path[PATH_MAX];
 				realpath(clean_uri, path);
 				chdir(dirname(clean_uri));
