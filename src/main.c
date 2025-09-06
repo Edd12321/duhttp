@@ -19,7 +19,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#define PORT_NUM        8080         /* What port to bind to? */
+#define PORT_NUM        80           /* What port to bind to? */
 #define BACKLOG         10           /* How many clients can wait? */
 #define POOL_SIZE       256          /* How big should the thread pool be? */
 #define DEFAULT_MIME    0            /* Send application/octet-stream, or let the browser figure it out */
@@ -58,6 +58,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 char cwd[PATH_MAX];
+int sv_sock = -1, cl_sock = -1;
 
 /* Ugly logging hack */
 enum log_type {
@@ -549,9 +550,19 @@ void *conn_handler()
 	return NULL;
 }
 
+void handle_sig(int sig)
+{
+	log_txt(NO_COND, INFO, "Received %s. Bye!", strsignal(sig));
+	if (sv_sock > 0)
+		close(sv_sock);
+	exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char *argv[])
 {
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGTERM, handle_sig);
+	signal(SIGINT, handle_sig);
 	getcwd(cwd, sizeof cwd);
 	/* Default values */
 	settings = (struct setting) {
@@ -600,8 +611,7 @@ int main(int argc, char *argv[])
 	realpath(settings.root_dir, actual_root);
 	settings.root_dir = actual_root;
 
-	int sv_sock = socket(AF_INET, SOCK_STREAM, 0);
-	int cl_sock;
+	sv_sock = socket(AF_INET, SOCK_STREAM, 0);
 	setsockopt(sv_sock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
 
 	struct sockaddr_in sv_addr = {
