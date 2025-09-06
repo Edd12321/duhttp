@@ -1,6 +1,8 @@
 #!/usr/lib/zrc/bin/zrc
 cd `{dirname `{realpath ${argv 1}}}
-./bin/duhttp \
-	-p 8080 \
-	-b 100 \
-	-d www
+./bin/duhttp -p 8080 -b 100 -d www -c /cgi-bin &
+set serv = [job 1]
+
+fn sigterm {kill -TERM $serv}
+fn sigint {kill -INT $serv}
+wait $serv

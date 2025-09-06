@@ -275,9 +275,9 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			char *dp_path_escaped = escape_html(dp_path);
 			char *d_name_escaped = escape_html(dir->d_name);
 			sprintf(str, "\t\t<tr>\n"
-			             	"\t\t\t<td><a href=\"%s\">%s</a></td>\n"
-			             	"\t\t\t<td>%s</td>\n"
-			             	"\t\t\t<td>%ldB</td>\n"
+			             	"\t\t\t<td><a href=\"%s\"><code>%s</code></a></td>\n"
+			             	"\t\t\t<td><code>%s</code></td>\n"
+			             	"\t\t\t<td><code>%ldB</code></td>\n"
 			             "\t\t</tr>\n"
 				, dp_path_escaped, d_name_escaped, date, st.st_size);
 			free(dp_path_escaped);
