@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -86,14 +87,15 @@ struct mime_type {
 	char *ext, *type;
 };
 
+#define UTF8 "; charset=UTF-8"
 struct mime_type mimetypes_ext[] = {
-	{ "txt zrc",                "text/plain" },
-	{ "html htm xhtml",         "text/html" },
-	{ "md",                     "text/markdown" },
-	{ "c h cpp hpp cc cxx c++", "text/x-c" },
-	{ "css",                    "text/css" },
-	{ "js",                     "text/javascript" },
-	{ "json",                   "application/json" },
+	{ "txt zrc",                "text/plain" UTF8 },
+	{ "html htm xhtml",         "text/html" UTF8 },
+	{ "md",                     "text/markdown" UTF8 },
+	{ "c h cpp hpp cc cxx c++", "text/x-c" UTF8 },
+	{ "css",                    "text/css" UTF8 },
+	{ "js",                     "text/javascript" UTF8 },
+	{ "json",                   "application/json" UTF8 },
 	{ "pdf",                    "application/pdf" },
 	{ "zip",                    "application/zip" },
 	{ "jar",                    "application/java-archive" },
@@ -183,6 +185,28 @@ char *escape_html(const char *s)
 	return new_buf;
 }
 
+char *decode_percent(const char *s)
+{
+	char *new_buf = malloc(strlen(s) + 1), *dst = new_buf;
+	for (; *s; ++s) {
+		char a, b;
+		switch (*s) {
+			case '%':
+				if (isxdigit(a = tolower(s[1])) && isxdigit(b = tolower(s[2]))) {
+					a -= a >= 'a' ? 'a' - 10 : '0';
+					b -= b >= 'a' ? 'a' - 10 : '0';
+					*dst++ = 16*a + b;
+					s += 2;
+				} else *dst++ = *s;
+				break;
+			case '+': *dst++ = ' '; break;
+			default: *dst++ = *s; break;
+		}	
+	}
+	*dst++ = '\0';
+	return new_buf;
+}
+
 /* [...] sender help functions */
 #define send_str(x) send(fd, x, strlen(x), 0)
 #define max(x, y) ((x) > (y) ? (x) : (y))
@@ -232,7 +256,9 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 	sprintf(str, "Content-Type: text/html\r\n\r\n"
 	             "<!DOCTYPE HTML>\n"
 	             "<html>\n"
-	             "<head><title>Index of %1$s</title>\n"
+	             "<head><style>\n"
+	             "td { white-space: nowrap; }\n"
+	             "</style><title>Index of %1$s</title>\n"
 	             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head>\n"
 	             "<body>\n"
 	             	"\t<h1>Index of %1$s</h1>\n"
@@ -271,13 +297,12 @@ static inline void send_dir_listing(int fd, char *uri_display, char *path)
 			if (!*dp_path)
 				dp_path = "/";
 
-			/* TODO: handle decoding HTTP percent strings */
 			char *dp_path_escaped = escape_html(dp_path);
 			char *d_name_escaped = escape_html(dir->d_name);
 			sprintf(str, "\t\t<tr>\n"
-			             	"\t\t\t<td><a href=\"%s\">%s</a></td>\n"
-			             	"\t\t\t<td>%s</td>\n"
-			             	"\t\t\t<td>%ldB</td>\n"
+			             	"\t\t\t<td><a href=\"%s\"><code>%s</code></a></td>\n"
+			             	"\t\t\t<td><code>%s</code></td>\n"
+			             	"\t\t\t<td><code>%ldB</code></td>\n"
 			             "\t\t</tr>\n"
 				, dp_path_escaped, d_name_escaped, date, st.st_size);
 			free(dp_path_escaped);
@@ -386,7 +411,10 @@ static inline void serve(int fd)
 	/* Do we have to send content back to the client? */
 	bool get = true;
 	
+	uri = decode_percent(uri);
 	char *clean_uri = sanitize_uri(uri);
+	/* Done in 2 steps cuz why not */
+
 	if (clean_uri == NULL) {
 		send_status(fd, 400);
 		goto _clean_up;
@@ -499,6 +527,7 @@ _get_req:;
 		send_status(fd, 400);
 	}
 _clean_up:
+	free(uri);
 	free(clean_uri);
 	free(content);
 }
