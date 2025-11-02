@@ -20,6 +20,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#define INTERFACE       "127.0.0.1"  /* What default interface to use? */
 #define PORT_NUM        80           /* What port to bind to? */
 #define BACKLOG         10           /* How many clients can wait? */
 #define POOL_SIZE       256          /* How big should the thread pool be? */
@@ -69,6 +70,7 @@ enum log_type {
 };
 
 struct setting {
+	char *interface;
 	int port_num;
 	int backlog;
 	size_t headers_max;
@@ -595,6 +597,7 @@ int main(int argc, char *argv[])
 	getcwd(cwd, sizeof cwd);
 	/* Default values */
 	settings = (struct setting) {
+		.interface   = INTERFACE,
 		.port_num    = PORT_NUM,
 		.backlog     = BACKLOG,
 		.headers_max = HEADERS_MAX,
@@ -603,8 +606,11 @@ int main(int argc, char *argv[])
 		.cgi_dir     = CGI_DIR
 	};
 	int opt;
-	while ((opt = getopt(argc, argv, "p:d:b:c:m:h:")) != -1) {
+	while ((opt = getopt(argc, argv, "p:d:b:c:m:h:i:")) != -1) {
 		switch (opt) {
+			case 'i':
+				settings.interface = optarg;
+				break;
 			case 'p':
 				settings.port_num = atoi(optarg);
 				break;
@@ -625,6 +631,7 @@ int main(int argc, char *argv[])
 				break;
 			case '?':
 				fprintf(stderr, "usage: %s\n"
+				    "\t[-i <interface>]\n"
 					"\t[-p <port>]\n"
 					"\t[-b <backlog>]\n"
 					"\t[-m <content-max>]\n"
@@ -646,14 +653,18 @@ int main(int argc, char *argv[])
 	struct sockaddr_in sv_addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(settings.port_num),
-		.sin_addr = {.s_addr = htonl(INADDR_ANY)},
+		.sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)},
 		.sin_zero = {0}
 	};
+	if (inet_pton(AF_INET, settings.interface, &sv_addr.sin_addr) != 1) {
+		perror(settings.interface);
+		return EXIT_FAILURE;
+	}
 
 	log_txt(NO_COND,
-		INFO, "Started server on port %d", settings.port_num);
+		INFO, "Started server at http://%s:%d", settings.interface, settings.port_num);
 	log_txt(bind(sv_sock, (struct sockaddr*) &sv_addr, sizeof sv_addr),
-		ERROR, "Could not bind socket to address");
+		ERROR, "Could not bind socket to port %d", settings.port_num);
 	log_txt(listen(sv_sock, settings.backlog),
 		ERROR, "Could not listen");
 	
