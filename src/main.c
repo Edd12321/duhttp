@@ -437,6 +437,7 @@ _get_req:;
 			} else {
 				send_status(fd, 200);
 				if (get) send_file(fd, idx_file, index_file);
+				else close(idx_file);
 			}
 		/* Explicit file */
 		} else {
@@ -448,6 +449,7 @@ _get_req:;
 			if (!cgi || !(st.st_mode & S_IXUSR)) {
 				send_status(fd, 200);
 				if (get) send_file(fd, uri_file, clean_uri);
+				else close(uri_file);
 				goto _clean_up;
 			}
 			pid_t pid;
